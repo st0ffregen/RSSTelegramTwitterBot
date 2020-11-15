@@ -10,6 +10,7 @@ import sys
 import os
 from bs4 import BeautifulSoup
 import telegram
+import re
 
 
 def readInFeed():
@@ -82,7 +83,9 @@ def getPicture(text):
         sys.exit(1)
 
     url = style.split("('")[1].split("')")[0]
-    return url
+    
+    #remove resolution to get original picture
+    return re.sub("-\d*x\d*.jpg", ".jpg", url)
 
 
 def sendTelegramMessage(link, teaser, imageUrl, credits):
