@@ -1,5 +1,11 @@
 # luhzeTelegramTwitterBot
 
+# Build
+Inside bot directpry run:
+```
+docker build -t python-bot .
+```
+
 # Staging
 Inside bot directory run:
 ```

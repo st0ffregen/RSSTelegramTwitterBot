@@ -22,7 +22,7 @@ def readInFeed():
 
     diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
 
-    if diff.seconds> 300:
+    if diff.seconds > 300 or diff.days > 0:
         print("article is older than 5 minutes, exiting")
         print(sys.exc_info())
         sys.exit(1)
@@ -99,11 +99,13 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
             teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
     for id in chatIds:
+        bot.send_message(chart_id=id.message.chat_id, text="---")
         bot.send_message(chat_id=id.message.chat_id, text=twitterText)
         bot.send_message(chat_id=id.message.chat_id, text="title image: " + imageUrl)
 
 
 def main():
+    print("---")
     print("starting bot")
     print("utc time now: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
     feedArray = readInFeed()
