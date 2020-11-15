@@ -65,9 +65,6 @@ def getPictureCreditsFromContent(text):
         return credits[0]
 
 
-
-
-
 def getPicture(text):
     pic = text.find("div", {'class': 'bunnerStyle'})
     if pic is None:
@@ -103,7 +100,6 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
     for id in chatIds:
         bot.send_message(chat_id=id.message.chat_id, text=imageUrl)
         bot.send_message(chat_id=id.message.chat_id, text=twitterText)
-
 
 
 def main():
