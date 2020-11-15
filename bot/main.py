@@ -99,7 +99,7 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
             teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
     for id in chatIds:
-        bot.send_message(chart_id=id.message.chat_id, text="---")
+        bot.send_message(chat_id=id.message.chat_id, text="---")
         bot.send_message(chat_id=id.message.chat_id, text=twitterText)
         bot.send_message(chat_id=id.message.chat_id, text="title image: " + imageUrl)
 
