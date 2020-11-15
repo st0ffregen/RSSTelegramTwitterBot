@@ -83,9 +83,9 @@ def getPicture(text):
         sys.exit(1)
 
     url = style.split("('")[1].split("')")[0]
-    
+
     #remove resolution to get original picture
-    return re.sub("-\d*x\d*.jpg", ".jpg", url)
+    return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
 
 
 def sendTelegramMessage(link, teaser, imageUrl, credits):
@@ -102,9 +102,9 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
             teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
     for id in chatIds:
-        bot.send_message(chat_id=id.message.chat_id, text="---")
+        bot.send_message(chat_id=id.message.chat_id, text=imageUrl)
         bot.send_message(chat_id=id.message.chat_id, text=twitterText)
-        bot.send_message(chat_id=id.message.chat_id, text="title image: " + imageUrl)
+
 
 
 def main():
