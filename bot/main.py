@@ -54,19 +54,18 @@ def readInTeaser(text):
         return teaserText.text
 
 
-def getFotoCreditsFromContent(text):
-    fotoText = text.split("Foto: ")
-    if len(fotoText) > 1:
-        credits = fotoText[1].split("</p>")
-        return credits[0]
+def getPictureCreditsFromContent(text):
+    match = re.search("<p>Titelfoto:.{1,200}<\/p>", text)
+    if match is None:
+        print("no credit found")
+        return None
     else:
-        fotoText = text.split("Titelfoto: ")
-        if len(fotoText) > 1:
-            credits = fotoText[1].split("</p>")
-            return credits[0]
-        else:
-            print("no credit found")
-    return None
+        pictureText = text.split("Titelfoto: ")
+        credits = pictureText[1].split("</p>")
+        return credits[0]
+
+
+
 
 
 def getPicture(text):
@@ -118,8 +117,8 @@ def main():
         teaser = readInTeaser(text)
         imageUrl = getPicture(text)
         content = feedArray['content'][0]['value']
-        fotoCredits = getFotoCreditsFromContent(content)
-        sendTelegramMessage(link, teaser, imageUrl, fotoCredits)
+        pictureCredits = getPictureCreditsFromContent(content)
+        sendTelegramMessage(link, teaser, imageUrl, pictureCredits)
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
