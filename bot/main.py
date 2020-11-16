@@ -87,7 +87,7 @@ def getPicture(text):
 def sendTelegramMessage(link, teaser, imageUrl, credits):
     print("send telegram message")
     bot = telegram.Bot(token=os.environ['telegramToken'])
-    chatIds = bot.get_updates()
+
 
     #craft twitter text
     if credits is None:
@@ -97,9 +97,8 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
         twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
             teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
-    for id in chatIds:
-        bot.send_message(chat_id=id.message.chat_id, text=imageUrl)
-        bot.send_message(chat_id=id.message.chat_id, text=twitterText)
+    bot.send_message(chat_id=os.environ['telegramChannelId'], text=imageUrl)
+    bot.send_message(chat_id=os.environ['telegramChannelId'], text=twitterText)
 
 
 def main():
