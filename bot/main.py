@@ -11,6 +11,8 @@ import os
 from bs4 import BeautifulSoup
 import telegram
 import re
+import sqlite3
+import initDB
 
 
 def readInFeed():
@@ -84,10 +86,23 @@ def getPicture(text):
     return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
 
 
-def sendTelegramMessage(link, teaser, imageUrl, credits):
-    print("send telegram message")
-    bot = telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
+def readInNewChatId(cur, con, bot):
+    chatIds = bot.get_updates()
+    if chatIds is None:
+        print("no new chat id")
+    else:
+        for id in chatIds:
+            if id.message is None:
+                print("no new chat id")
+            else:
+                print("insert new chat id: " + str(id.message.chat_id))
+                cur.execute('INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id), ))
 
+    con.commit()
+
+
+def sendTelegramMessage(bot, link, teaser, imageUrl, credits):
+    print("send telegram message")
 
     #craft twitter text
     if credits is None:
@@ -104,11 +119,32 @@ def sendTelegramMessage(link, teaser, imageUrl, credits):
     bot.send_message(chat_id=os.environ['TELEGRAM_CHANNEL_ID'], text=twitterText)
 
 
+def initTelegramBot():
+    return telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
+
+
+def checkIfDBIsThere(cur):
+    print("checking if db has been initialized yet")
+    try:
+        cur.execute('SELECT chatId FROM chatIds limit 1')
+    except sqlite3.OperationalError as e:
+        print(f"db has not been initialized yet: {e}")
+        initDB.initDb()
+    else:
+        print("db has been initialized")
+
+
 def main():
     print("---")
     print("starting bot")
     print("utc time now: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
-    feedArray = readInFeed()
+    bot = initTelegramBot()
+    con = initDB.connectToDb()
+    cur = initDB.getCursor(con)
+    checkIfDBIsThere(cur)
+    readInNewChatId(cur, con, bot)
+    #feedArray = readInFeed()
+    feedArray = None
     if feedArray is not None:
         link = feedArray['link']
         text = readInSite(link)
@@ -116,7 +152,7 @@ def main():
         imageUrl = getPicture(text)
         content = feedArray['content'][0]['value']
         pictureCredits = getPictureCreditsFromContent(content)
-        sendTelegramMessage(link, teaser, imageUrl, pictureCredits)
+        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits)
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
