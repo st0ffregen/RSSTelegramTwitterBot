@@ -6,34 +6,42 @@ import os
 
 
 def connectToDb():
-    con = sqlite3.connect(os.environ['DB_FILE_NAME'])
-    return con
-
-
-def getCursor(con):
-    return con.cursor()
-
-
-def createTables(cur):
-    cur.execute('CREATE TABLE chatIds ('
-                'chatId INTEGER PRIMARY KEY '
-                ');')
-    return 0
-
-
-def initDb():
-    print("init db with tables")
     try:
-        con = connectToDb()
-        cur = getCursor(con)
-        createTables(cur)
-        con.commit()
-        con.close()
-        print("db initialized")
-    except sqlite3.Error as e:
-        print(f"Error while working with db: {e}")
+        con = sqlite3.connect(os.environ['DB_FILE_NAME'])
+        return con
+    except sqlite3.OperationalError as e:
+        print(f"error while establishing connection to db: {e}")
+        print("exiting")
+        print(sys.exc_info())
         sys.exit(1)
 
 
-if __name__ == "__main__":
-    initDb()
+def getCursor(con):
+    try:
+        return con.cursor()
+    except sqlite3.OperationalError as e:
+        print(f"error while creating cursor for connection: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
+
+
+def createTables(cur):
+    print("creating tables in db")
+    try:
+        cur.execute('CREATE TABLE chatIds ('
+                    'chatId INTEGER PRIMARY KEY '
+                    ');')
+        cur.execute('CREATE TABLE tweets ('
+                    'url VARCHAR(255) PRIMARY KEY,'
+                    'teaser VARCHAR(512),'
+                    'imageCredits VARCHAR(128),'
+                    'image BLOB'
+                    ');')
+    except sqlite3.OperationalError as e:
+        print(f"error while inserting new tables to db: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
+
+    return 0

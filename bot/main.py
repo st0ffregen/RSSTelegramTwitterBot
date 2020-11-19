@@ -14,7 +14,6 @@ import re
 import sqlite3
 import initDB
 
-
 def readInFeed():
     print("read in feed")
     NewsFeed = feedparser.parse("https://luhze.de/rss")
@@ -25,7 +24,7 @@ def readInFeed():
 
     diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
 
-    if diff.seconds > 300 or diff.days > 0:
+    if 1!=1:#diff.seconds > 300 or diff.days > 0:
         print("article is older than 5 minutes, exiting")
         print(sys.exc_info())
         sys.exit(1)
@@ -47,6 +46,7 @@ def readInSite(url):
 
 
 def readInTeaser(text):
+    print("read in teaser")
     teaserText = text.find("p", {'class': 'descriptionStyle'})
     if teaserText is None:
         print("no teaser text found, exiting")
@@ -57,6 +57,7 @@ def readInTeaser(text):
 
 
 def getPictureCreditsFromContent(text):
+    print("get credits from picture")
     match = re.search("<p>Titelfoto:.{1,200}<\/p>", text)
     if match is None:
         print("no credit found")
@@ -67,7 +68,8 @@ def getPictureCreditsFromContent(text):
         return credits[0]
 
 
-def getPicture(text):
+def getPictureLink(text):
+    print("fetch picture link")
     pic = text.find("div", {'class': 'bunnerStyle'})
     if pic is None:
         print("no picture found, exiting")
@@ -86,8 +88,43 @@ def getPicture(text):
     return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
 
 
+def downloadPicture(link):
+    print("download picture")
+    try:
+        response = requests.get(link)
+        img = sqlite3.Binary(response.content)
+        return img
+    except requests.exceptions.RequestException as e:
+        print(f"error while downloading image: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
+
+
+def craftIntentText(link, teaser, imageCredits):
+    print("craft twitter intent text")
+    # craft twitter text
+    if imageCredits is None:
+        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(teaser + "\n\n" + u"\u27A1" + " "
+                                                                                      + link)
+    else:
+        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
+            teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
+
+    return twitterText
+
+
+def saveTweetToDb(cur, con, imageUrl, imageCredits, link, teaser):
+    print("save tweet to db")
+    img = downloadPicture(imageUrl)
+    sqlArray = [['INSERT OR IGNORE INTO tweets VALUES (?,?,?,?)', (link, teaser, imageCredits, img)]]
+    return insertSQLStatements(cur, con, sqlArray)
+
+
 def readInNewChatId(cur, con, bot):
+    print("read in new chat ids")
     chatIds = bot.get_updates()
+    sqlArray = []
     if chatIds is None:
         print("no new chat id")
     else:
@@ -96,23 +133,27 @@ def readInNewChatId(cur, con, bot):
                 print("no new chat id")
             else:
                 print("insert new chat id: " + str(id.message.chat_id))
-                cur.execute('INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id), ))
+                sqlArray.append(['INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id), )])
+        insertSQLStatements(cur, con, sqlArray)
 
-    con.commit()
+
+def insertSQLStatements(cur, con, sqlArray):
+    try:
+        for statement in sqlArray:
+            print(statement[0])
+            print(statement[1])
+            cur.execute(statement[0], statement[1])
+        con.commit()
+        return 0
+    except sqlite3.OperationalError as e:
+        print(f"error while working with db: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
 
 
 def sendTelegramMessage(bot, link, teaser, imageUrl, credits):
     print("send telegram message")
-
-    #craft twitter text
-    if credits is None:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(teaser + "\n\n" + u"\u27A1" + " "
-                                                                                      + link)
-    else:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
-            teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
-
-
 
     # send message to channel
     bot.send_message(chat_id=os.environ['TELEGRAM_CHANNEL_ID'], text=imageUrl)
@@ -120,6 +161,7 @@ def sendTelegramMessage(bot, link, teaser, imageUrl, credits):
 
 
 def initTelegramBot():
+    print("initialize telegram bot")
     return telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
 
 
@@ -129,10 +171,9 @@ def checkIfDBIsThere(cur):
         cur.execute('SELECT chatId FROM chatIds limit 1')
     except sqlite3.OperationalError as e:
         print(f"db has not been initialized yet: {e}")
-        initDB.initDb()
+        initDB.createTables(cur)
     else:
         print("db has been initialized")
-
 
 def main():
     print("---")
@@ -143,16 +184,16 @@ def main():
     cur = initDB.getCursor(con)
     checkIfDBIsThere(cur)
     readInNewChatId(cur, con, bot)
-    #feedArray = readInFeed()
-    feedArray = None
+    feedArray = readInFeed()
     if feedArray is not None:
         link = feedArray['link']
         text = readInSite(link)
         teaser = readInTeaser(text)
-        imageUrl = getPicture(text)
+        imageUrl = getPictureLink(text)
         content = feedArray['content'][0]['value']
         pictureCredits = getPictureCreditsFromContent(content)
-        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits)
+        saveTweetToDb(cur, con, imageUrl, pictureCredits, link, teaser)
+        #sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits)
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
