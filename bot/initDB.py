@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 import sqlite3
 import sys
+import os
 
 
 def connectToDb():
-    con = sqlite3.connect('twitter.db')
+    con = sqlite3.connect(os.environ['DB_FILE_NAME'])
     return con
 
 
