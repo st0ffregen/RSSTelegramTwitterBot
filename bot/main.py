@@ -164,11 +164,11 @@ def insertSQLStatements(cur, con, sqlArray):
         sys.exit(1)
 
 
-def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds):
+def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds, published):
     print("send telegram message")
 
     for id in chatIds:
-        bot.send_message(chat_id=id[0], text="--- NEW ARTICLE ---")
+        bot.send_message(chat_id=id[0], text="--- NEW ARTICLE " + published.strftime('%Y-%m-%d %H:%M:%S') + " ---")
         bot.send_photo(chat_id=id[0], photo=imageUrl)
         if credits is None:
             bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: photo made by author")
@@ -226,7 +226,7 @@ def main():
         pictureCredits = getPictureCreditsFromContent(content)
         saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
         chatIds = getChatIdsFromDB(cur)
-        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds)
+        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
