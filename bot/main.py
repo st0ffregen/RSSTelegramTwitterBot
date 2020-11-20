@@ -25,7 +25,7 @@ def readInFeed():
 
     diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
 
-    if 1!=1:#diff.seconds > 300 or diff.days > 0:
+    if diff.seconds > 300 or diff.days > 0:
         print("article is older than 5 minutes, exiting")
         print(sys.exc_info())
         sys.exit(1)
@@ -102,17 +102,32 @@ def downloadPicture(link):
         sys.exit(1)
 
 
-def craftIntentText(link, teaser, imageCredits):
+def craftIntentText(cur):
     print("craft twitter intent text")
-    # craft twitter text
-    if imageCredits is None:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(teaser + "\n\n" + u"\u27A1" + " "
-                                                                                      + link)
+    # fetch from db
+    try:
+        cur.execute('SELECT url, teaser, imageCredits FROM tweets')
+        lastTweet = cur.fetchone()
+        if lastTweet is None:
+            return 1
+        link = lastTweet[0]
+        teaser = lastTweet[1]
+        imageCredits = lastTweet[2]
+    except sqlite3.OperationalError as e:
+        print(f"error while fetching tweet data from db: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
     else:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
-            teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
+        # craft twitter text
+        if imageCredits is None:
+            twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(teaser + "\n\n" + u"\u27A1" + " "
+                                                                                          + link)
+        else:
+            twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
+                teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
-    return twitterText
+        return twitterText
 
 
 def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
@@ -131,6 +146,67 @@ def readImageFromDB(cur, link):
         print("exiting")
         print(sys.exc_info())
         sys.exit(1)
+
+
+def lookForCommand(cur, bot):
+    print("look for publish command")
+    updates = bot.get_updates()
+    if updates is None or len(updates) == 0:
+        print("no new message")
+    else:
+        for message in updates:
+            if message.message.text == "/publish":
+                print("publish last tweet")
+                publishTweet(bot, message.message.chat_id, cur)
+            if message.message.text == "/sendintent":
+                sendIntent(cur, bot, message)
+        return 0
+
+
+def sendIntent(cur, bot, message):
+    print("send intent")
+    intent = craftIntentText(cur)
+    if intent == 1:  # nothing in db
+        print("no tweets in db")
+        bot.send_message(chat_id=message.message.chat_id,
+                         text="the tweet has probably already been published by another person. If that's not the case"
+                              "please contact your administrator")
+        print(sys.exc_info())
+        sys.exit(1)
+    else:
+        bot.send_message(chat_id=message.message.chat_id, text=intent)
+    return 0
+
+
+def publishTweet(bot, id, cur):
+
+
+    #integrate tweepy
+    statusCode = deleteAllTweetsFromDB(cur)
+    if statusCode == 1:
+        print("something went wrong while deleting all tweets from db")
+        bot.send_message(chat_id=id,
+                         text="the tweet has probably already been published by another person. If that's not the case"
+                              "please contact your administrator")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
+
+
+    bot.send_message(chat_id=id,
+                     text="new tweet has been successfully published")
+    return 0
+
+
+def deleteAllTweetsFromDB(cur):
+    try:
+        cur.execute('DELETE FROM tweets')
+        return 0
+    except sqlite3.OperationalError as e:
+        print(f"error deleting all tweets: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        return 1
 
 
 def readInNewChatId(cur, con, bot):
@@ -215,6 +291,7 @@ def main():
     cur = initDB.getCursor(con)
     checkIfDBIsThere(cur)
     readInNewChatId(cur, con, bot)
+    lookForCommand(cur, bot)
     feedArray = readInFeed()
     if feedArray is not None:
         link = feedArray['link']
@@ -227,6 +304,8 @@ def main():
         saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
         chatIds = getChatIdsFromDB(cur)
         sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
+        cur.close()
+        con.close()
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
