@@ -14,6 +14,7 @@ import re
 import sqlite3
 import initDB
 
+
 def readInFeed():
     print("read in feed")
     NewsFeed = feedparser.parse("https://luhze.de/rss")
@@ -114,18 +115,29 @@ def craftIntentText(link, teaser, imageCredits):
     return twitterText
 
 
-def saveTweetToDb(cur, con, imageUrl, imageCredits, link, teaser):
+def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
     print("save tweet to db")
-    img = downloadPicture(imageUrl)
     sqlArray = [['INSERT OR IGNORE INTO tweets VALUES (?,?,?,?)', (link, teaser, imageCredits, img)]]
     return insertSQLStatements(cur, con, sqlArray)
+
+
+def readImageFromDB(cur, link):
+    print("read image from db")
+    try:
+        cur.execute('SELECT image FROM tweets WHERE url=?', (link,))
+        return cur.fetchone()[0]
+    except sqlite3.OperationalError as e:
+        print(f"error while fetching image from db: {e}")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
 
 
 def readInNewChatId(cur, con, bot):
     print("read in new chat ids")
     chatIds = bot.get_updates()
     sqlArray = []
-    if chatIds is None:
+    if chatIds is None or len(chatIds) == 0:
         print("no new chat id")
     else:
         for id in chatIds:
@@ -152,17 +164,34 @@ def insertSQLStatements(cur, con, sqlArray):
         sys.exit(1)
 
 
-def sendTelegramMessage(bot, link, teaser, imageUrl, credits):
+def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds):
     print("send telegram message")
 
-    # send message to channel
-    bot.send_message(chat_id=os.environ['TELEGRAM_CHANNEL_ID'], text=imageUrl)
-    bot.send_message(chat_id=os.environ['TELEGRAM_CHANNEL_ID'], text=twitterText)
+    for id in chatIds:
+        bot.send_message(chat_id=id[0], text="--- NEW ARTICLE ---")
+        bot.send_photo(chat_id=id[0], photo=imageUrl)
+        if credits is None:
+            bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: photo made by author")
+        else:
+            bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: " + credits)
+
+    return 0
 
 
 def initTelegramBot():
     print("initialize telegram bot")
     return telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
+
+
+def getChatIdsFromDB(cur):
+    print("fetch chat ids from db")
+    try:
+        cur.execute('SELECT chatId FROM chatIds')
+        return cur.fetchall()
+    except sqlite3.OperationalError as e:
+        print(f"error while fetching chat ids: {e}")
+        print(sys.exc_info())
+        sys.exit(1)
 
 
 def checkIfDBIsThere(cur):
@@ -174,6 +203,8 @@ def checkIfDBIsThere(cur):
         initDB.createTables(cur)
     else:
         print("db has been initialized")
+
+
 
 def main():
     print("---")
@@ -190,10 +221,12 @@ def main():
         text = readInSite(link)
         teaser = readInTeaser(text)
         imageUrl = getPictureLink(text)
+        img = downloadPicture(imageUrl)
         content = feedArray['content'][0]['value']
         pictureCredits = getPictureCreditsFromContent(content)
-        saveTweetToDb(cur, con, imageUrl, pictureCredits, link, teaser)
-        #sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits)
+        saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
+        chatIds = getChatIdsFromDB(cur)
+        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds)
     else:
         print("error while fetching and reading rss")
         print(sys.exc_info())
