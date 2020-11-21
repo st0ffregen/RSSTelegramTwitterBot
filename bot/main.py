@@ -13,6 +13,7 @@ import telegram
 import re
 import sqlite3
 import initDB
+import tweepy
 
 
 def readInFeed():
@@ -20,12 +21,12 @@ def readInFeed():
     NewsFeed = feedparser.parse("https://luhze.de/rss")
     entry = NewsFeed.entries[0]
 
-    #check if date is in last 5 mins
+    # check if date is in last 5 mins
     published = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z')
 
     diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
 
-    if diff.seconds > 300 or diff.days > 0:
+    if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > int(os.environ['INTERVAL_DAYS']):
         print("article is older than 5 minutes, exiting")
         print(sys.exc_info())
         sys.exit(1)
@@ -85,7 +86,7 @@ def getPictureLink(text):
 
     url = style.split("('")[1].split("')")[0]
 
-    #remove resolution to get original picture
+    # remove resolution to get original picture
     return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
 
 
@@ -102,9 +103,8 @@ def downloadPicture(link):
         sys.exit(1)
 
 
-def craftIntentText(cur):
-    print("craft twitter intent text")
-    # fetch from db
+def getValuesFromDb(cur):
+    print("get values from db")
     try:
         cur.execute('SELECT url, teaser, imageCredits FROM tweets')
         lastTweet = cur.fetchone()
@@ -118,16 +118,28 @@ def craftIntentText(cur):
         print("exiting")
         print(sys.exc_info())
         sys.exit(1)
-    else:
-        # craft twitter text
-        if imageCredits is None:
-            twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(teaser + "\n\n" + u"\u27A1" + " "
-                                                                                          + link)
-        else:
-            twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
-                teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + credits)
 
-        return twitterText
+    return [link, teaser, imageCredits]
+
+
+def craftIntentText(cur):
+    print("craft twitter intent text")
+    # fetch from db
+    attributes = getValuesFromDb(cur)
+    link = attributes[0]
+    teaser = attributes[1]
+    imageCredits = attributes[2]
+
+    # craft twitter text
+    if imageCredits is None:
+        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
+           teaser + "\n\n" + u"\u27A1" + " "
+            + link)
+    else:
+        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
+            teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + imageCredits)
+
+    return twitterText
 
 
 def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
@@ -136,11 +148,16 @@ def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
     return insertSQLStatements(cur, con, sqlArray)
 
 
-def readImageFromDB(cur, link):
+def readImageFromDB(cur):
     print("read image from db")
     try:
-        cur.execute('SELECT image FROM tweets WHERE url=?', (link,))
-        return cur.fetchone()[0]
+        cur.execute('SELECT image FROM tweets')
+        res = cur.fetchone()
+        if res is not None:
+            return res[0]
+        else:
+            print("no image in tweet db")
+            return 1
     except sqlite3.OperationalError as e:
         print(f"error while fetching image from db: {e}")
         print("exiting")
@@ -149,12 +166,17 @@ def readImageFromDB(cur, link):
 
 
 def lookForCommand(cur, bot):
-    print("look for publish command")
+    print("look for publish/intent command")
     updates = bot.get_updates()
+
     if updates is None or len(updates) == 0:
         print("no new message")
     else:
         for message in updates:
+            diff = datetime.utcnow().replace(tzinfo=pytz.utc) - message.message.date
+
+            if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > int(os.environ['INTERVAL_DAYS']):
+                continue
             if message.message.text == "/publish":
                 print("publish last tweet")
                 publishTweet(bot, message.message.chat_id, cur)
@@ -169,36 +191,84 @@ def sendIntent(cur, bot, message):
     if intent == 1:  # nothing in db
         print("no tweets in db")
         bot.send_message(chat_id=message.message.chat_id,
-                         text="the tweet has probably already been published by another person. If that's not the case"
+                         text="the tweet has probably already been published by another person. If that's not the case,"
                               "please contact your administrator")
         print(sys.exc_info())
         sys.exit(1)
     else:
         bot.send_message(chat_id=message.message.chat_id, text=intent)
+        print("intent successfully sent")
+    return 0
+
+
+def saveImageTmp(cur):
+    file = open("pic.tmp", "wb")
+    statusCode = readImageFromDB(cur)
+    if statusCode == 1:
+        return 1
+    file.write(statusCode)
+    return 0
+
+
+def deleteImageTmp():
+    file = open("pic.tmp", "w")
+    file.write("")
     return 0
 
 
 def publishTweet(bot, id, cur):
+    oauth = OAuth()
+    if oauth == 1:
+        bot.send_message(chat_id=id,
+                         text="something went wrong while authenticating to twitter, please contact your administrator")
+    try:
+        api = tweepy.API(oauth)
+        statusCode = saveImageTmp(cur)
+        if statusCode == 1:
+            bot.send_message(chat_id=id,
+                             text="something went wrong while fetching data from the database, please contact your administrator")
+            print("exiting")
+            print(sys.exc_info())
+            sys.exit(1)
 
+        media = api.media_upload("pic.tmp")
+        deleteImageTmp()
+        attributes = getValuesFromDb(cur)
+        link = attributes[0]
+        teaser = attributes[1]
+        imageCredits = attributes[2]
+        if imageCredits is None:
+            tweet = teaser + "\n\n" + u"\u27A1" + " " + link
+        else:
+            tweet = teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + imageCredits
 
-    #integrate tweepy
+        post_result = api.update_status(status=tweet, media_ids=[media.media_id])
+    except tweepy.error.TweepError as e:
+        print(f"something went wrong while authenticating to twitter: {e}")
+        bot.send_message(chat_id=id,
+                         text="something went wrong while publishing the tweet, please contact your administrator")
+        print("exiting")
+        print(sys.exc_info())
+        sys.exit(1)
+
     statusCode = deleteAllTweetsFromDB(cur)
     if statusCode == 1:
         print("something went wrong while deleting all tweets from db")
         bot.send_message(chat_id=id,
-                         text="the tweet has probably already been published by another person. If that's not the case"
+                         text="the tweet has probably already been published by another person. If that's not the case,"
                               "please contact your administrator")
         print("exiting")
         print(sys.exc_info())
         sys.exit(1)
 
-
+    print("new tweet successfully published")
     bot.send_message(chat_id=id,
                      text="new tweet has been successfully published")
     return 0
 
 
 def deleteAllTweetsFromDB(cur):
+    print("delete all tweets from db")
     try:
         cur.execute('DELETE FROM tweets')
         return 0
@@ -221,15 +291,13 @@ def readInNewChatId(cur, con, bot):
                 print("no new chat id")
             else:
                 print("insert new chat id: " + str(id.message.chat_id))
-                sqlArray.append(['INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id), )])
+                sqlArray.append(['INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id),)])
         insertSQLStatements(cur, con, sqlArray)
 
 
 def insertSQLStatements(cur, con, sqlArray):
     try:
         for statement in sqlArray:
-            print(statement[0])
-            print(statement[1])
             cur.execute(statement[0], statement[1])
         con.commit()
         return 0
@@ -247,7 +315,8 @@ def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds, published
         bot.send_message(chat_id=id[0], text="--- NEW ARTICLE " + published.strftime('%Y-%m-%d %H:%M:%S') + " ---")
         bot.send_photo(chat_id=id[0], photo=imageUrl)
         if credits is None:
-            bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: photo made by author")
+            bot.send_message(chat_id=id[0],
+                             text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: photo made by author")
         else:
             bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: " + credits)
 
@@ -279,7 +348,17 @@ def checkIfDBIsThere(cur):
         initDB.createTables(cur)
     else:
         print("db has been initialized")
+        return 0
 
+
+def OAuth():
+    try:
+        auth = tweepy.OAuthHandler(os.environ['TWITTER_API_KEY'], os.environ['TWITTER_API_SECRET_KEY'])
+        auth.set_access_token(os.environ['TWITTER_ACCESS_TOKEN'], os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
+        return auth
+    except tweepy.error.TweepError as e:
+        print(f"something went wrong while authenticating to twitter: {e}")
+        return 1
 
 
 def main():

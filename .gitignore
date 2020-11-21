@@ -2,3 +2,4 @@
 .env
 bot/__pycache__/
 bot/twitter.db
+bot/pic.tmp
