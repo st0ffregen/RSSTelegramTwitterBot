@@ -21,7 +21,7 @@ def readInFeed():
     NewsFeed = feedparser.parse("https://luhze.de/rss")
     entry = NewsFeed.entries[0]
 
-    # check if date is in last 5 mins
+    # check if date is in last interval seconds
     published = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z')
 
     diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
