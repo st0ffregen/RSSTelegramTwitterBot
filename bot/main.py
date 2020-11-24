@@ -60,14 +60,18 @@ def readInTeaser(text):
 
 def getPictureCreditsFromContent(text):
     print("get credits from picture")
+    blockList = ["Privat"]
     match = re.search("<p>Titelfoto:.{1,200}<\/p>", text)
     if match is None:
         print("no credit found")
         return None
     else:
         pictureText = text.split("Titelfoto: ")
-        credits = pictureText[1].split("</p>")
-        return credits[0]
+        imageCredits = pictureText[1].split("</p>")
+        if imageCredits in blockList:
+            return None[0]
+        else:
+            return imageCredits[0]
 
 
 def getPictureLink(text):
