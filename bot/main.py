@@ -174,7 +174,7 @@ def lookForCommand(cur, bot):
     updates = bot.get_updates()
 
     if updates is None or len(updates) == 0:
-        print("no new message")
+        print("no new messages")
     else:
         for message in updates:
             diff = datetime.utcnow().replace(tzinfo=pytz.utc) - message.message.date
