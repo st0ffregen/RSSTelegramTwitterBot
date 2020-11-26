@@ -69,7 +69,7 @@ def getPictureCreditsFromContent(text):
         pictureText = text.split("Titelfoto: ")
         imageCredits = pictureText[1].split("</p>")
         if imageCredits in blockList:
-            return None[0]
+            return None
         else:
             return imageCredits[0]
 
