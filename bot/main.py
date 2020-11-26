@@ -320,7 +320,7 @@ def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds, published
         bot.send_photo(chat_id=id[0], photo=imageUrl)
         if credits is None:
             bot.send_message(chat_id=id[0],
-                             text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: photo made by author")
+                             text="link: \n" + link + "\n\n" + teaser + "\n\nwon't show any credits")
         else:
             bot.send_message(chat_id=id[0], text="link: \n" + link + "\n\n" + teaser + "\n\ncredits: " + credits)
 
