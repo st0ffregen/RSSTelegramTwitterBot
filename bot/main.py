@@ -91,8 +91,9 @@ def getPictureLink(text):
     url = style.split("('")[1].split("')")[0]
 
     # remove resolution to get original picture
-    return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
+    #return re.sub("-\d{2,5}x\d{2,5}\.jpg$", ".jpg", url)
 
+    return url
 
 def downloadPicture(link):
     print("download picture")
@@ -182,7 +183,6 @@ def lookForCommand(cur, bot):
             if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > int(os.environ['INTERVAL_DAYS']):
                 continue
             if message.message.text == "/publish":
-                print("publish last tweet")
                 publishTweet(bot, message.message.chat_id, cur)
             if message.message.text == "/sendintent":
                 sendIntent(cur, bot, message)
@@ -221,6 +221,7 @@ def deleteImageTmp():
 
 
 def publishTweet(bot, id, cur):
+    print("publish new tweet")
     oauth = OAuth()
     if oauth == 1:
         bot.send_message(chat_id=id,
@@ -248,7 +249,7 @@ def publishTweet(bot, id, cur):
 
         post_result = api.update_status(status=tweet, media_ids=[media.media_id])
     except tweepy.error.TweepError as e:
-        print(f"something went wrong while authenticating to twitter: {e}")
+        print(f"something went wrong while publishing the tweet twitter: {e}")
         bot.send_message(chat_id=id,
                          text="something went wrong while publishing the tweet, please contact your administrator")
         print("exiting")
