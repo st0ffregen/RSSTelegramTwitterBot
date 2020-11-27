@@ -14,6 +14,7 @@ import re
 import sqlite3
 import initDB
 import tweepy
+import traceback
 
 
 def readInFeed():
@@ -370,28 +371,35 @@ def main():
     print("---")
     print("starting bot")
     print("utc time now: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
-    bot = initTelegramBot()
-    con = initDB.connectToDb()
-    cur = initDB.getCursor(con)
-    checkIfDBIsThere(cur)
-    readInNewChatId(cur, con, bot)
-    lookForCommand(cur, bot)
-    feedArray = readInFeed()
-    if feedArray is not None:
-        link = feedArray['link']
-        text = readInSite(link)
-        teaser = readInTeaser(text)
-        imageUrl = getPictureLink(text)
-        img = downloadPicture(imageUrl)
-        content = feedArray['content'][0]['value']
-        pictureCredits = getPictureCreditsFromContent(content)
-        saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
-        chatIds = getChatIdsFromDB(cur)
-        sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
-        cur.close()
-        con.close()
-    else:
-        print("error while fetching and reading rss")
+    try:
+        bot = initTelegramBot()
+        con = initDB.connectToDb()
+        cur = initDB.getCursor(con)
+        checkIfDBIsThere(cur)
+        readInNewChatId(cur, con, bot)
+        lookForCommand(cur, bot)
+        feedArray = readInFeed()
+        if feedArray is not None:
+            link = feedArray['link']
+            text = readInSite(link)
+            teaser = readInTeaser(text)
+            imageUrl = getPictureLink(text)
+            img = downloadPicture(imageUrl)
+            content = feedArray['content'][0]['value']
+            pictureCredits = getPictureCreditsFromContent(content)
+            saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
+            chatIds = getChatIdsFromDB(cur)
+            sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
+            cur.close()
+            con.close()
+        else:
+            print("error while fetching and reading rss")
+            print(sys.exc_info())
+            sys.exit(1)
+    except telegram.TelegramError as e:
+        print(f"error while working with telegram api: {e}")
+        traceback.print_exc()
+        print("exiting")
         print(sys.exc_info())
         sys.exit(1)
 
