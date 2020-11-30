@@ -173,7 +173,7 @@ def readImageFromDB(cur):
 
 def lookForCommand(cur, bot):
     print("look for publish/intent command")
-    updates = bot.get_updates()
+    updates = bot.get_updates(timeout=120)
 
     if updates is None or len(updates) == 0:
         print("no new messages")
