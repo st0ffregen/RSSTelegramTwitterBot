@@ -149,7 +149,9 @@ def craftIntentText(cur):
 
 
 def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
-    print("save tweet to db")
+    print("delete all tweets from db and save new tweet to db")
+    #delte all other tweets from the db
+    deleteAllTweetsFromDB(cur)
     sqlArray = [['INSERT OR IGNORE INTO tweets VALUES (?,?,?,?)', (link, teaser, imageCredits, img)]]
     return insertSQLStatements(cur, con, sqlArray)
 
@@ -186,22 +188,22 @@ def lookForCommand(cur, bot):
             if message.message.text == "/publish":
                 publishTweet(bot, message.message.chat_id, cur)
             if message.message.text == "/sendintent":
-                sendIntent(cur, bot, message)
+                sendIntent(cur, bot, message.message.chat_id)
         return 0
 
 
-def sendIntent(cur, bot, message):
+def sendIntent(cur, bot, chatId):
     print("send intent")
     intent = craftIntentText(cur)
     if intent == 1:  # nothing in db
         print("no tweets in db")
-        bot.send_message(chat_id=message.message.chat_id,
+        bot.send_message(chat_id=chatId,
                          text="the tweet has probably already been published by another person. If that's not the case,"
                               "please contact your administrator")
         print(sys.exc_info())
         sys.exit(1)
     else:
-        bot.send_message(chat_id=message.message.chat_id, text=intent)
+        bot.send_message(chat_id=chatId, text=intent)
         print("intent successfully sent")
     return 0
 
