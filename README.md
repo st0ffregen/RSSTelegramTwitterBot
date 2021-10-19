@@ -1,19 +1,22 @@
-# luhzeTelegramTwitterBot
+# RSSTelegramTwitterBot
+
+This bot automatically publishes a tweet when a new article is added on website XY.  
+You can specify an interval in which the user can stop the publishing pipeline via her telegram.  
+The bot uses RSS. If you want it to work for your site you need RSS with the same structure as luhze.de/rss.
+
 
 # Build
 ```
-docker build -t python-bot ./bot
+docker build -t rss-telegram-twitter-bot ./bot
 ```
 
-# Staging & Deployment
+# Run
+Copy ```.env.example``` to ```.env``` and fill out the variables.
 ```
-cp .env-example .env
-cp bot/twitter-example.db bot/twitter.db
-docker run -it -v "$(pwd)/bot:/usr/src/app" --rm --env-file .env --name python-bot-running python-bot
+docker run -it -v "$(pwd)/bot:/usr/src/app" --rm --env-file .env --name rss-telegram-twitter-bot-running rss-telegram-twitter-bot
 ```
 
 # Telegram Bot Commands
 ```
-/publish - Veröffentlicht den zuletzt vom Bot vorgeschlagenen Tweet
-/sendintent - Schickt eine Tweet Vorlage
+/stop - Stops the publishing pipeline
 ```
