@@ -12,28 +12,73 @@ from bs4 import BeautifulSoup
 import telegram
 import re
 import sqlite3
-import initDB
 import tweepy
 import traceback
+import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+
+pathToLogFile = 'logs/rssTelegramTwitterBot.log'
+
+
+def configureLogger():
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+
+    file_handler = logging.FileHandler(pathToLogFile)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger
+
+
+def getLinksFromRSS():
+    print("read in feed")
+    NewsFeed = feedparser.parse("https://luhze.de/rss")
+    entries = NewsFeed.entries
+
+    linkArray = []
+
+    for entry in entries:
+        linkArray.append(entry.link.strip())
+
+    return linkArray
+
+
+def isLinkOld(entry):
+    published = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z')
+    diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
+    intervalSeconds = int(os.environ['INTERVAL_SECONDS'])
+
+    #if diff.seconds > intervalSeconds or diff.days > 0:
+    if True:
+        return False
+
+    return False
+
+
+def generateListWithoutOldLinks(listWithOldLinks):
+    listWithoutOldLinks = []
+
+    for entry in listWithOldLinks:
+        if not isLinkOld(entry):
+            listWithoutOldLinks.append({'link': entry.link, 'published': datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'), 'author': entry.author, 'content': entry.content})
+    return listWithoutOldLinks
 
 
 def readInFeed():
-    print("read in feed")
-    NewsFeed = feedparser.parse("https://luhze.de/rss")
-    entry = NewsFeed.entries[0]
+    rssFeed = feedparser.parse(os.environ['RSS_URL'])
 
-    # check if date is in last interval seconds
-    published = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z')
+    if rssFeed.bozo > 0:
+        raise rssFeed.bozo_exception
 
-    diff = datetime.utcnow().replace(tzinfo=pytz.utc) - published
+    return generateListWithoutOldLinks(rssFeed.entries)
 
-    if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > int(os.environ['INTERVAL_DAYS']):
-        print("article is older than 5 minutes, exiting")
-        print(sys.exc_info())
-        sys.exit(1)
-    else:
-        resultArray = {'link': entry.link, 'published': published, 'content': entry.content}
-        return resultArray
+
+
 
 
 def readInSite(url):
@@ -69,7 +114,8 @@ def getPictureCreditsFromContent(text):
     else:
         pictureText = text.split("Titelfoto: ")
         imageCredits = pictureText[1].split("</p>")
-        if imageCredits in blockList:
+        if imageCredits[0] in blockList:
+            print("image credit in blocklist")
             return None
         else:
             return imageCredits[0]
@@ -109,103 +155,82 @@ def downloadPicture(link):
         sys.exit(1)
 
 
-def getValuesFromDb(cur):
-    print("get values from db")
-    try:
-        cur.execute('SELECT url, teaser, imageCredits FROM tweets')
-        lastTweet = cur.fetchone()
-        if lastTweet is None:
-            return 1
-        link = lastTweet[0]
-        teaser = lastTweet[1]
-        imageCredits = lastTweet[2]
-    except sqlite3.OperationalError as e:
-        print(f"error while fetching tweet data from db: {e}")
-        print("exiting")
-        print(sys.exc_info())
-        sys.exit(1)
+def generateListWithArticlesToPublish(bot, feedArray):
 
-    return [link, teaser, imageCredits]
-
-
-def craftIntentText(cur):
-    print("craft twitter intent text")
-    # fetch from db
-    attributes = getValuesFromDb(cur)
-    link = attributes[0]
-    teaser = attributes[1]
-    imageCredits = attributes[2]
-
-    # craft twitter text
-    if imageCredits is None:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
-           teaser + "\n\n" + u"\u27A1" + " "
-            + link)
-    else:
-        twitterText = "https://twitter.com/intent/tweet?text=" + requests.utils.quote(
-            teaser + "\n\n" + u"\u27A1" + " " + link + "\n\n" + u"\U0001F4F8" + " " + imageCredits)
-
-    return twitterText
-
-
-def saveTweetToDb(cur, con, img, imageUrl, imageCredits, link, teaser):
-    print("delete all tweets from db and save new tweet to db")
-    #delte all other tweets from the db
-    deleteAllTweetsFromDB(cur)
-    sqlArray = [['INSERT OR IGNORE INTO tweets VALUES (?,?,?,?)', (link, teaser, imageCredits, img)]]
-    return insertSQLStatements(cur, con, sqlArray)
-
-
-def readImageFromDB(cur):
-    print("read image from db")
-    try:
-        cur.execute('SELECT image FROM tweets')
-        res = cur.fetchone()
-        if res is not None:
-            return res[0]
+    if len(feedArray) < 2:  # only one article published
+        authorName = feedArray[0]['author']
+        if isThereStopCommand(bot, authorName, None):
+            return []
         else:
-            print("no image in tweet db")
-            return 1
-    except sqlite3.OperationalError as e:
-        print(f"error while fetching image from db: {e}")
-        print("exiting")
-        print(sys.exc_info())
-        sys.exit(1)
+            return feedArray
+    else:  # several articles published
+        authorsWithArticlesDict = {}
+        feedArrayWithArticlesToPublish = []
+
+        for article in feedArray:
+            if article['author'] in authorsWithArticlesDict:
+                authorsWithArticlesDict[article['author']].append(article)
+            else:
+                authorsWithArticlesDict[article['author']] = [article]
+
+        for author in authorsWithArticlesDict:
+            #if len(authorsWithArticlesDict[author]) > 1:  # more that one article from author so keywords must be given to distinguish what to stop
+            for article in authorsWithArticlesDict[author]:
+                if not isThereStopCommand(bot, author, article['content']):
+                    feedArrayWithArticlesToPublish.append(article)
+            #else:
+             #   if not isThereStopCommand(bot, author, None):  # only one article from author so /stop is sufficient
+              #      feedArrayWithArticlesToPublish.append(authorsWithArticlesDict[author][0])
+
+        return feedArrayWithArticlesToPublish
 
 
-def lookForCommand(cur, bot):
-    print("look for publish/intent command")
+def splitUpdatesForChatIds(updateArray):
+    chatIdsWithUpdatesDict = {}
+
+    for update in updateArray:
+        chatId = update['message']['chat']['id']
+        if chatId in chatIdsWithUpdatesDict:
+            chatIdsWithUpdatesDict[chatId].append(update['message'])
+        else:
+            chatIdsWithUpdatesDict[chatId] = [update['message']]
+
+    return chatIdsWithUpdatesDict
+
+
+def resolveChatIdByAuthorName(authorName):
+    authorNames = [authorName.strip() for authorName in os.environ['TELEGRAM_AUTHOR_NAMES'][1:-1].split(',')]
+    authorIds = [authorId.strip() for authorId in os.environ['TELEGRAM_CHAT_IDS'][1:-1].split(',')]
+
+    return int(authorIds[authorNames.index(authorName)])
+
+
+def isThereStopCommand(bot, authorName, articleContent):
     updates = bot.get_updates(timeout=120)
 
     if updates is None or len(updates) == 0:
-        print("no new messages")
-    else:
-        for message in updates:
-            diff = datetime.utcnow().replace(tzinfo=pytz.utc) - message.message.date
+        return False
 
-            if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > int(os.environ['INTERVAL_DAYS']):
+    chatIdsWithUpdatesDict = splitUpdatesForChatIds(updates)
+    authorChatId = resolveChatIdByAuthorName(authorName)
+
+    for author in chatIdsWithUpdatesDict:
+
+        if authorChatId != author:
+            continue
+
+        for message in chatIdsWithUpdatesDict[author]:
+            timeDiff = datetime.now() - datetime.fromtimestamp(message['date'])
+
+            if timeDiff.seconds > int(os.environ['INTERVAL_SECONDS']) or timeDiff.days > 0:
                 continue
-            if message.message.text == "/publish":
-                publishTweet(bot, message.message.chat_id, cur)
-            if message.message.text == "/sendintent":
-                sendIntent(cur, bot, message.message.chat_id)
-        return 0
 
+            if '/stop' == message['text'].strip():
+                return True
+            if '/stop' in message['text'].strip() and message['text'].replace('/stop', '').strip() in articleContent:
+                return True
 
-def sendIntent(cur, bot, chatId):
-    print("send intent")
-    intent = craftIntentText(cur)
-    if intent == 1:  # nothing in db
-        print("no tweets in db")
-        bot.send_message(chat_id=chatId,
-                         text="the tweet has probably already been published by another person. If that's not the case,"
-                              "please contact your administrator")
-        print(sys.exc_info())
-        sys.exit(1)
-    else:
-        bot.send_message(chat_id=chatId, text=intent)
-        print("intent successfully sent")
-    return 0
+    return False
 
 
 def saveImageTmp(cur):
@@ -275,46 +300,6 @@ def publishTweet(bot, id, cur):
     return 0
 
 
-def deleteAllTweetsFromDB(cur):
-    print("delete all tweets from db")
-    try:
-        cur.execute('DELETE FROM tweets')
-        return 0
-    except sqlite3.OperationalError as e:
-        print(f"error deleting all tweets: {e}")
-        print("exiting")
-        print(sys.exc_info())
-        return 1
-
-
-def readInNewChatId(cur, con, bot):
-    print("read in new chat ids")
-    chatIds = bot.get_updates()
-    sqlArray = []
-    if chatIds is None or len(chatIds) == 0:
-        print("no new chat id")
-    else:
-        for id in chatIds:
-            if id.message is None:
-                print("no new chat id")
-            else:
-                print("insert new chat id: " + str(id.message.chat_id))
-                sqlArray.append(['INSERT OR IGNORE INTO chatIds VALUES (?)', (int(id.message.chat_id),)])
-        insertSQLStatements(cur, con, sqlArray)
-
-
-def insertSQLStatements(cur, con, sqlArray):
-    try:
-        for statement in sqlArray:
-            cur.execute(statement[0], statement[1])
-        con.commit()
-        return 0
-    except sqlite3.OperationalError as e:
-        print(f"error while working with db: {e}")
-        print("exiting")
-        print(sys.exc_info())
-        sys.exit(1)
-
 
 def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds, published):
     print("send telegram message")
@@ -332,78 +317,74 @@ def sendTelegramMessage(bot, link, teaser, imageUrl, credits, chatIds, published
 
 
 def initTelegramBot():
-    print("initialize telegram bot")
     return telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
 
 
-def getChatIdsFromDB(cur):
-    print("fetch chat ids from db")
-    try:
-        cur.execute('SELECT chatId FROM chatIds')
-        return cur.fetchall()
-    except sqlite3.OperationalError as e:
-        print(f"error while fetching chat ids: {e}")
-        print(sys.exc_info())
-        sys.exit(1)
-
-
-def checkIfDBIsThere(cur):
-    print("checking if db has been initialized yet")
-    try:
-        cur.execute('SELECT chatId FROM chatIds limit 1')
-    except sqlite3.OperationalError as e:
-        print(f"db has not been initialized yet: {e}")
-        initDB.createTables(cur)
-    else:
-        print("db has been initialized")
-        return 0
-
-
-def OAuth():
-    try:
-        auth = tweepy.OAuthHandler(os.environ['TWITTER_API_KEY'], os.environ['TWITTER_API_SECRET_KEY'])
-        auth.set_access_token(os.environ['TWITTER_ACCESS_TOKEN'], os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
-        return auth
-    except tweepy.error.TweepError as e:
-        print(f"something went wrong while authenticating to twitter: {e}")
-        return 1
+def authorizeToTwitter():
+    auth = tweepy.OAuthHandler(os.environ['TWITTER_API_KEY'], os.environ['TWITTER_API_SECRET_KEY'])
+    auth.set_access_token(os.environ['TWITTER_ACCESS_TOKEN'], os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
+    return auth
 
 
 def main():
-    print("---")
-    print("starting bot")
-    print("utc time now: " + datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+    telegramToken = os.environ['TELEGRAM_TOKEN']
+    chatIdArray = os.environ['TELEGRAM_CHAT_IDS']
+    telegramAdminChatId = os.environ['TELEGRAM_ADMIN_CHAT_ID']
+
+    # was passiert wenn mehrere artikel hochgeladen wurden555 -> signalwort aus dem content
+    # was passiert wenn abwehcselnd franz und funmi in dieser stunde was hochladen5 -> wird strikt nach autor:in gesplittet
+    # am ende noch autor:in benachrichtigen
+
+    logger = configureLogger()
+    logger.info('start bot')
+
     try:
-        bot = initTelegramBot()
-        con = initDB.connectToDb()
-        cur = initDB.getCursor(con)
-        checkIfDBIsThere(cur)
-        readInNewChatId(cur, con, bot)
-        lookForCommand(cur, bot)
+        logger.debug('read in feed')
         feedArray = readInFeed()
-        if feedArray is not None:
-            link = feedArray['link']
-            text = readInSite(link)
-            teaser = readInTeaser(text)
-            imageUrl = getPictureLink(text)
-            img = downloadPicture(imageUrl)
-            content = feedArray['content'][0]['value']
-            pictureCredits = getPictureCreditsFromContent(content)
-            saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
-            chatIds = getChatIdsFromDB(cur)
-            sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
-            cur.close()
-            con.close()
-        else:
-            print("error while fetching and reading rss")
-            print(sys.exc_info())
-            sys.exit(1)
-    except telegram.TelegramError as e:
-        print(f"error while working with telegram api: {e}")
-        traceback.print_exc()
-        print("exiting")
-        print(sys.exc_info())
-        sys.exit(1)
+
+        if len(feedArray) == 0:
+            logger.info('no new articles uploaded in the last ' + os.environ['INTERVAL_SECONDS'] + ' seconds')
+            return
+
+        logger.debug('init telegram bot')
+        telegramBot = initTelegramBot()
+
+        generateListWithArticlesToPublish(telegramBot, feedArray)
+
+        logger.debug('init twitter bot')
+        #twitterAuth = authorizeToTwitter()
+    except Exception as e:
+        logger.critical(f"something went wrong: {e}")
+        logger.critical(traceback.format_exception(*sys.exc_info()))
+        return 1
+
+
+    # try:
+    #     lookForCommand(cur, bot)
+    #
+    #     if feedArray is not None:
+    #         link = feedArray['link']
+    #         text = readInSite(link)
+    #         teaser = readInTeaser(text)
+    #         imageUrl = getPictureLink(text)
+    #         img = downloadPicture(imageUrl)
+    #         content = feedArray['content'][0]['value']
+    #         pictureCredits = getPictureCreditsFromContent(content)
+    #         saveTweetToDb(cur, con, img, imageUrl, pictureCredits, link, teaser)
+    #         chatIds = getChatIdsFromDB(cur)
+    #         sendTelegramMessage(bot, link, teaser, imageUrl, pictureCredits, chatIds, feedArray['published'])
+    #         cur.close()
+    #         con.close()
+    #     else:
+    #         print("error while fetching and reading rss")
+    #         print(sys.exc_info())
+    #         sys.exit(1)
+    # except telegram.TelegramError as e:
+    #     print(f"error while working with telegram api: {e}")
+    #     traceback.print_exc()
+    #     print("exiting")
+    #     print(sys.exc_info())
+    #     sys.exit(1)
 
 
 if __name__ == "__main__":
