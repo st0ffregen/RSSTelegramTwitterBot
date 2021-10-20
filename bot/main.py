@@ -261,7 +261,7 @@ def craftTweetObjectList(feedList, logger):
 def publishTweets(twitterApi, tweetObjectList, logger):
 
     for tweet in tweetObjectList:
-        #media = twitterApi.media_upload(tweet.pathToImage)
+        media = twitterApi.media_upload(tweet.pathToImage)
 
         if tweet.imageCredit is None:
             tweet = tweet.teaser + "\n\n" + u"\u27A1" + " " + tweet.link
@@ -269,8 +269,8 @@ def publishTweets(twitterApi, tweetObjectList, logger):
             tweet = tweet.teaser + "\n\n" + u"\u27A1" + " " + tweet.link + "\n\n" + u"\U0001F4F8" + " " + tweet.imageCredit
 
         logger.info('tweet ' + tweet.replace('\n', ''))
-        #response = twitterApi.update_status(status=tweet, media_ids=[media.media_id])
-        #logger.info(response)
+        response = twitterApi.update_status(status=tweet, media_ids=[media.media_id])
+        logger.info(response)
 
 
 def initTelegramBot():
