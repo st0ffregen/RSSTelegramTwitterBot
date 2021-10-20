@@ -1,11 +1,6 @@
-FROM python:3
-WORKDIR /usr/src/app
+FROM python:3.7
+WORKDIR /usr/src/bot/
 COPY . .
-RUN apt-get update
-RUN apt-get install -y python3-pip
-RUN pip3 install feedparser
-RUN pip3 install beautifulsoup4
-RUN pip3 install requests
-RUN pip3 install tweepy
-RUN pip3 install python-telegram-bot --upgrade
-CMD ["python", "/usr/src/app/main.py"]
+RUN pip install -r requirements.txt
+ENV PYTHONPATH /usr/src/
+CMD ["python", "/usr/src/bot/main.py"]
