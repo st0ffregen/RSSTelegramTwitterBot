@@ -12,13 +12,13 @@ import time
 load_dotenv()
 
 telegramUpdatesMock = [
-    {'message': {'text': 'foo', 'date': time.time(), 'chat': {'id': 1}}},
-    {'message': {'text': '/stop Third Culture Kids', 'date': time.time(), 'chat': {'id': 1}}},
-    {'message': {'text': '/stop', 'date': time.time(), 'chat': {'id': 1}}},
-    {'message': {'text': 'bar', 'date': time.time(), 'chat': {'id': 2}}},
-    {'message': {'text': '/stop Third Culture Kids', 'date': time.time(), 'chat': {'id': 2}}},
-    {'message': {'text': '/stop', 'date': time.time(), 'chat': {'id': 3}}},
-    {'message': {'text': 'abc', 'date': time.time(), 'chat': {'id': 4}}},
+    {'message': {'text': 'foo', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 1}}},
+    {'message': {'text': '/stop Third Culture Kids', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 1}}},
+    {'message': {'text': '/stop', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 1}}},
+    {'message': {'text': 'bar', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 2}}},
+    {'message': {'text': '/stop Third Culture Kids', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 2}}},
+    {'message': {'text': '/stop', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 3}}},
+    {'message': {'text': 'abc', 'date': datetime.utcnow().timestamp(), 'chat': {'id': 4}}},
 ]
 
 
@@ -58,19 +58,20 @@ class TestBot(TestCase):
     @mock.patch('bot.main.telegram')
     def test_is_there_stop_command(self, telegram_mock, logging_mock):
         telegram_mock.bot.get_updates.return_value = telegramUpdatesMock
+        startingTime = datetime.utcnow()
 
         # stops because same author and correct keywords
-        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'a', 'abc Third Culture Kids abc', logging_mock))
+        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'a', 'abc Third Culture Kids abc', startingTime, logging_mock))
         # stops because same author and uses general /stop to stop all
-        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'c', 'abc Third Culture Kids abc', logging_mock))
+        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'c', 'abc Third Culture Kids abc', startingTime, logging_mock))
         # stops because same author and uses general /stop to stop all
-        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'c', None, logging_mock))
+        self.assertTrue(main.isThereStopCommand(telegram_mock.bot, 'c', None, startingTime, logging_mock))
         # does not stop because specific stop keywords but no matching article
-        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'b', 'abc some other text abc', logging_mock))
+        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'b', 'abc some other text abc', startingTime, logging_mock))
         # does not stop because no stop used
-        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'd', 'abc some other text abc', logging_mock))
+        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'd', 'abc some other text abc', startingTime, logging_mock))
         # does not stop because no stop used
-        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'd', None, logging_mock))
+        self.assertFalse(main.isThereStopCommand(telegram_mock.bot, 'd', None, startingTime, logging_mock))
 
     @mock.patch.dict(os.environ, {'TELEGRAM_AUTHOR_NAMES': '[a, b, c, d]'})
     @mock.patch.dict(os.environ, {'TELEGRAM_CHAT_IDS': '[1,2,3,4]'})
@@ -78,6 +79,7 @@ class TestBot(TestCase):
     @mock.patch('bot.main.telegram')
     def test_filter_stopped_articles(self, telegram_mock, logging_mock):
         telegram_mock.bot.get_updates.return_value = telegramUpdatesMock
+        startingTime = datetime.utcnow()
 
         feedListSeveralArticles = [
             FeedObject('https://www.luhze.de/2021/10/18/vorschau-auf-das-64-dok-leipzig/',
@@ -127,12 +129,12 @@ class TestBot(TestCase):
         ]
 
         # returns empty list because authors gives /stop signal
-        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListOneArticleFromAuthorA, logging_mock), [])
+        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListOneArticleFromAuthorA, startingTime, logging_mock), [])
         # returns feed array because there is no stop command
-        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListOneArticleFromAuthorD, logging_mock),
+        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListOneArticleFromAuthorD, startingTime, logging_mock),
                          feedListOneArticleFromAuthorD)
         # returns filtered list
-        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListSeveralArticles, logging_mock),
+        self.assertEqual(main.filterStoppedArticles(telegram_mock.bot, feedListSeveralArticles, startingTime, logging_mock),
                          feedListWithoutStoppedArticles)
 
     @mock.patch.dict(os.environ, {'INTERVAL_SECONDS': '1860'})
@@ -155,15 +157,14 @@ class TestBot(TestCase):
             StatusMock(datetime.utcnow() - timedelta(seconds=1870), '1438478887646863360',
                        {'urls': [{'expanded_url': 'https://www.luhze.de/2021/10/19/was-bleibt-wenn-wir-gehen/'}]}, None)
         ]
+        startingTime = datetime.utcnow()
 
         self.assertTrue(main.isLinkAlreadyTweeted(tweepy_mock,
-                                                  'https://www.luhze.de/2021/09/16/langer-weg-zur-gruenen-universitaet/',
-                                                  logging_mock))
-        self.assertFalse(main.isLinkAlreadyTweeted(tweepy_mock, 'https://www.abc.de', logging_mock))
+                                                  'https://www.luhze.de/2021/09/16/langer-weg-zur-gruenen-universitaet/', startingTime, logging_mock))
+        self.assertFalse(main.isLinkAlreadyTweeted(tweepy_mock, 'https://www.abc.de', startingTime, logging_mock))
         # tweet is too old to stop publishing
         self.assertFalse(
-            main.isLinkAlreadyTweeted(tweepy_mock, 'https://www.luhze.de/2021/10/19/was-bleibt-wenn-wir-gehen/',
-                                      logging_mock))
+            main.isLinkAlreadyTweeted(tweepy_mock, 'https://www.luhze.de/2021/10/19/was-bleibt-wenn-wir-gehen/', startingTime, logging_mock))
 
     def test_get_picture_credit(self):
         contentFotosPlural = '<p>some content here</p><p>Fotos: abc</p>'
@@ -192,7 +193,7 @@ class TestBot(TestCase):
                    datetime(2021, 10, 18, 9, 2, 49, tzinfo=timezone.utc), 'a',
                    '<p>Die Ratten und Rättinen aber würden dies überleben.</p> <p>„Die Rättin“ läuft derzeit auf der Großen Bühne des Schauspiel Leipzigs. Weitere Spieltermine: 21.10, 30.10, 14.11. Tickets für Studierende ab 12 Euro.</p> <p>Foto: Rolf Arnold</p>')]
 
-        expectedTweetObject = TweetObject('Im Schauspiel Leipzig läuft derzeit das Theaterstück „Die Rättin“ inszeniert von Claudia Bauer. In bunten Kleidern und Masken erzählen weibliche Ratten vom Untergang der Menschheit.', 'https://www.luhze.de/2021/10/18/guenther-grass-und-das-klima/', 'Rolf Arnold', 'https://www.luhze.de/wp-content/uploads/2021/10/die-Raettinen_Rolf-Arnold-scaled-e1634544908467-1024x384.jpg', '123')
+        expectedTweetObject = TweetObject('Im Schauspiel Leipzig läuft derzeit das Theaterstück „Die Rättin“ inszeniert von Claudia Bauer. In bunten Kleidern und Masken erzählen weibliche Ratten vom Untergang der Menschheit.', 'https://www.luhze.de/2021/10/18/guenther-grass-und-das-klima/', 'https://www.luhze.de/wp-content/uploads/2021/10/die-Raettinen_Rolf-Arnold-scaled-e1634544908467-1024x384.jpg', 'Rolf Arnold', '123')
 
         self.assertEqual(main.craftTweetObjectList(feedArray, logging_mock), [expectedTweetObject])
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from datetime import datetime
+from datetime import datetime, timezone
 import pytz
 import feedparser
 from urllib.request import urlopen
@@ -50,8 +50,8 @@ def getLinksFromRSS():
     return linkArray
 
 
-def isLinkOld(entry):
-    diff = datetime.utcnow().replace(tzinfo=pytz.utc) - entry.published
+def isLinkOld(entry, upperTimeBound):
+    diff = upperTimeBound.replace(tzinfo=pytz.utc) - entry.published
 
     if diff.seconds > int(os.environ['INTERVAL_SECONDS']) or diff.days > 0:
         return True
@@ -59,11 +59,11 @@ def isLinkOld(entry):
     return False
 
 
-def generateListWithoutOldLinks(feedList, logger):
+def generateListWithoutOldLinks(feedList, upperTimeBound, logger):
     feedListWithoutOldLinks = []
 
     for entry in feedList:
-        if not isLinkOld(entry):
+        if not isLinkOld(entry, upperTimeBound):
             logger.info('new article ' + entry.link)
             feedListWithoutOldLinks.append(entry)
 
@@ -85,11 +85,11 @@ def readInFeed(logger):
     return feedList
 
 
-def filterStoppedArticles(bot, feedList, logger):
+def filterStoppedArticles(bot, feedList, upperTimeBound, logger):
 
     if len(feedList) < 2:  # only one article published
         authorName = feedList[0].author
-        if isThereStopCommand(bot, authorName, feedList[0].content, logger):
+        if isThereStopCommand(bot, authorName, feedList[0].content, upperTimeBound, logger):
             return []
         else:
             return feedList
@@ -105,7 +105,7 @@ def filterStoppedArticles(bot, feedList, logger):
 
         for author in authorsWithArticlesDict:
             for article in authorsWithArticlesDict[author]:
-                if not isThereStopCommand(bot, author, article.content, logger):
+                if not isThereStopCommand(bot, author, article.content, upperTimeBound, logger):
                     feedListWithArticlesToPublish.append(article)
 
         return feedListWithArticlesToPublish
@@ -131,7 +131,7 @@ def resolveChatIdByAuthorName(authorName):
     return int(authorIds[authorNames.index(authorName)])
 
 
-def isThereStopCommand(bot, authorName, articleContent, logger):
+def isThereStopCommand(bot, authorName, articleContent, upperTimeBound, logger):
     updates = bot.get_updates(timeout=120)
 
     if updates is None or len(updates) == 0:
@@ -146,7 +146,7 @@ def isThereStopCommand(bot, authorName, articleContent, logger):
             continue
 
         for message in chatIdsWithUpdatesDict[author]:
-            timeDiff = datetime.now() - datetime.fromtimestamp(message['date'])
+            timeDiff = upperTimeBound - datetime.fromtimestamp(message['date'])
 
             if timeDiff.seconds > int(os.environ['INTERVAL_SECONDS']) or timeDiff.days > 0:
                 continue
@@ -162,25 +162,25 @@ def isThereStopCommand(bot, authorName, articleContent, logger):
     return False
 
 
-def filterAlreadyTweetedArticles(twitterApi, feedList, logger):
+def filterAlreadyTweetedArticles(twitterApi, feedList, upperTimeBound, logger):
     notAlreadyTweetedArticlesList = []
 
     for article in feedList:
-        if not isLinkAlreadyTweeted(twitterApi, article.link, logger):
+        if not isLinkAlreadyTweeted(twitterApi, article.link, upperTimeBound, logger):
             notAlreadyTweetedArticlesList.append(article)
 
     return notAlreadyTweetedArticlesList
 
 
-def isLinkAlreadyTweeted(twitterApi, link, logger):
+def isLinkAlreadyTweeted(twitterApi, link, upperTimeBound, logger):
     tweetList = twitterApi.user_timeline(id="luhze_leipzig", count=5, tweet_mode='extended')
 
     for tweet in tweetList:
-        if not (datetime.utcnow() - tweet.created_at).seconds <= int(os.environ['INTERVAL_SECONDS']):
+        if not (upperTimeBound - tweet.created_at).seconds <= int(os.environ['INTERVAL_SECONDS']):
             logger.info('tweet ' + tweet.id_str + ' older than ' + os.environ['INTERVAL_SECONDS'] + ' seconds')
             continue
 
-        if not (datetime.now() - tweet.created_at).days <= 0:
+        if not (upperTimeBound - tweet.created_at).days <= 0:
             logger.info('tweet ' + tweet.id_str + ' older than 0 days')
             continue
 
@@ -284,6 +284,8 @@ def getTwitterApi():
 
 
 def main():
+    startingTime = datetime.utcnow()
+
     logger = configureLogger()
     logger.info('start bot')
 
@@ -291,7 +293,7 @@ def main():
         logger.info('read in feed')
         feedList = readInFeed(logger)
 
-        onlyNewArticlesFeedList = generateListWithoutOldLinks(feedList, logger)
+        onlyNewArticlesFeedList = generateListWithoutOldLinks(feedList, startingTime, logger)
 
         if len(onlyNewArticlesFeedList) == 0:
             logger.info('no new articles uploaded in the last ' + os.environ['INTERVAL_SECONDS'] + ' seconds')
@@ -300,12 +302,12 @@ def main():
         logger.info('init telegram bot')
         telegramBot = initTelegramBot()
 
-        notStoppedArticles = filterStoppedArticles(telegramBot, onlyNewArticlesFeedList, logger)
+        notStoppedArticles = filterStoppedArticles(telegramBot, onlyNewArticlesFeedList, startingTime, logger)
 
         logger.info('init twitter bot')
         twitterApi = getTwitterApi()
 
-        notTweetedArticles = filterAlreadyTweetedArticles(twitterApi, notStoppedArticles, logger)
+        notTweetedArticles = filterAlreadyTweetedArticles(twitterApi, notStoppedArticles, startingTime, logger)
 
         tweetObjectList = craftTweetObjectList(notTweetedArticles, logger)
 
