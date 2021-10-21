@@ -7,7 +7,6 @@ from bot import main
 from bot.FeedObject import FeedObject
 from bot.TweetObject import TweetObject
 import os
-import time
 
 load_dotenv()
 

@@ -270,7 +270,7 @@ def publishTweets(twitterApi, tweetObjectList, logger):
 
         logger.info('tweet ' + tweet.replace('\n', ''))
         response = twitterApi.update_status(status=tweet, media_ids=[media.media_id])
-        logger.info(response)
+        logger.info(response.entities['urls'][0]['expanded_url'])
 
 
 def initTelegramBot():
