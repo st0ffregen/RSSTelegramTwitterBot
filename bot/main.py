@@ -231,12 +231,12 @@ def getTeaserText(sourceCode):
 
 
 def getPictureCredit(content):
-    blockList = ['Privat']
+    blockList = ['privat']
     match = re.search('<p>(Titelfoto|Foto(s)?):.{1,200}<\/p>', content)
     if match is not None:
         matchString = match.group()
         imageCredit = matchString.replace('</p>', '').split(':')[1].strip()
-        if imageCredit not in blockList:
+        if imageCredit.lower() not in blockList:
             return imageCredit
 
     return None

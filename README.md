@@ -1,4 +1,4 @@
-# RSSTelegramTwitterBot
+# luhzeTelegramTwitterBot
 
 This bot automatically publishes a tweet when a new article is added on website XY.  
 To tweet the bot aggregate information specifically useful for luhze.de. That can be edited.  
@@ -8,13 +8,13 @@ The bot uses RSS. If you want it to work for your site you need RSS with the sam
 
 # Build
 ```
-docker build -t rss-telegram-twitter-bot ./bot
+docker build -t luhze-telegram-twitter-bot ./bot
 ```
 
 # Run
 Copy ```.env.example``` to ```.env``` and fill out the variables.
 ```
-docker run -it -v "$(pwd)/bot:/usr/src/bot" --rm --env-file .env --name rss-telegram-twitter-bot-running rss-telegram-twitter-bot
+docker run -it -v "$(pwd)/bot:/usr/src/bot" --rm --env-file .env --name luhze-telegram-twitter-bot-running luhze-telegram-twitter-bot
 ```
 
 # Telegram Bot Commands
