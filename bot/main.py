@@ -114,12 +114,15 @@ def filterStoppedArticles(bot, feedList, upperTimeBound, logger):
 def splitUpdatesForChatIds(updateArray):
     chatIdsWithUpdatesDict = {}
 
-    for update in updateArray:
-        chatId = update['message']['chat']['id']
-        if chatId in chatIdsWithUpdatesDict:
-            chatIdsWithUpdatesDict[chatId].append(update['message'])
-        else:
-            chatIdsWithUpdatesDict[chatId] = [update['message']]
+    try:
+        for update in updateArray:
+            chatId = update['message']['chat']['id']
+            if chatId in chatIdsWithUpdatesDict:
+                chatIdsWithUpdatesDict[chatId].append(update['message'])
+            else:
+                chatIdsWithUpdatesDict[chatId] = [update['message']]
+    except TypeError:
+        raise Exception('TypeError: \'NoneType\' object is not subscriptable. Messages: ' + updateArray)
 
     return chatIdsWithUpdatesDict
 
