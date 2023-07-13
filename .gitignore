@@ -6,3 +6,5 @@ bot/__pycache__/
 bot/pic.tmp
 bot/*.jpg
 bot/logs/*
+bot/tweets.db
+luhze_telegram_twitter_bot_venv/

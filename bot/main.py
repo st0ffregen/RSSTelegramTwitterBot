@@ -8,7 +8,6 @@ import requests
 import sys
 import os
 from bs4 import BeautifulSoup
-import telegram
 import re
 import tweepy
 import traceback
@@ -18,6 +17,7 @@ from bot.FeedObject import FeedObject
 from bot.TweetObject import TweetObject
 import time
 import shutil
+import sqlite3
 
 load_dotenv()
 
@@ -35,19 +35,6 @@ def configureLogger():
     logger.addHandler(file_handler)
 
     return logger
-
-
-def getLinksFromRSS():
-    print("read in feed")
-    NewsFeed = feedparser.parse("https://luhze.de/rss")
-    entries = NewsFeed.entries
-
-    linkArray = []
-
-    for entry in entries:
-        linkArray.append(entry.link.strip())
-
-    return linkArray
 
 
 def isLinkOld(entry, upperTimeBound):
@@ -84,118 +71,21 @@ def readInFeed(logger):
 
     return feedList
 
-
-def filterStoppedArticles(bot, feedList, upperTimeBound, logger):
-
-    if len(feedList) < 2:  # only one article published
-        authorName = feedList[0].author
-        if isThereStopCommand(bot, authorName, feedList[0].content, upperTimeBound, logger):
-            return []
-        else:
-            return feedList
-    else:  # several articles published
-        authorsWithArticlesDict = {}
-        feedListWithArticlesToPublish = []
-
-        for article in feedList:
-            if article.author in authorsWithArticlesDict:
-                authorsWithArticlesDict[article.author].append(article)
-            else:
-                authorsWithArticlesDict[article.author] = [article]
-
-        for author in authorsWithArticlesDict:
-            for article in authorsWithArticlesDict[author]:
-                if not isThereStopCommand(bot, author, article.content, upperTimeBound, logger):
-                    feedListWithArticlesToPublish.append(article)
-
-        return feedListWithArticlesToPublish
-
-
-def splitUpdatesForChatIds(updateArray):
-    chatIdsWithUpdatesDict = {}
-
-    try:
-        for update in updateArray:
-            chatId = update['message']['chat']['id']
-            if chatId in chatIdsWithUpdatesDict:
-                chatIdsWithUpdatesDict[chatId].append(update['message'])
-            else:
-                chatIdsWithUpdatesDict[chatId] = [update['message']]
-    except TypeError:
-        raise Exception('TypeError: \'NoneType\' object is not subscriptable. Messages: ' + updateArray)
-
-    return chatIdsWithUpdatesDict
-
-
-def resolveChatIdByAuthorName(authorName):
-    authorNames = [authorName.strip() for authorName in os.environ['TELEGRAM_AUTHOR_NAMES'][1:-1].split(',')]
-    authorIds = [authorId.strip() for authorId in os.environ['TELEGRAM_CHAT_IDS'][1:-1].split(',')]
-
-    return int(authorIds[authorNames.index(authorName)])
-
-
-def isThereStopCommand(bot, authorName, articleContent, upperTimeBound, logger):
-    updates = bot.get_updates(timeout=120)
-
-    if updates is None or len(updates) == 0:
-        return False
-
-    chatIdsWithUpdatesDict = splitUpdatesForChatIds(updates)
-    authorChatId = resolveChatIdByAuthorName(authorName)
-
-    for author in chatIdsWithUpdatesDict:
-
-        if authorChatId != author:
-            continue
-
-        for message in chatIdsWithUpdatesDict[author]:
-            timeDiff = upperTimeBound - datetime.fromtimestamp(message['date'])
-
-            if timeDiff.seconds > int(os.environ['INTERVAL_SECONDS']) or timeDiff.days > 0:
-                continue
-
-            if '/stop' == message['text'].strip():
-                logger.info('article was stopped by keyword ' + message['text'].strip())
-                return True
-
-            if '/stop' in message['text'].strip() and message['text'].replace('/stop', '').strip() in articleContent:
-                logger.info('article was stopped by keyword ' + message['text'].strip())
-                return True
-
-    return False
-
-
-def filterAlreadyTweetedArticles(twitterApi, feedList, upperTimeBound, logger):
+def filterAlreadyTweetedArticles(cur, feedList):
     notAlreadyTweetedArticlesList = []
 
     for article in feedList:
-        if not isLinkAlreadyTweeted(twitterApi, article.link, upperTimeBound, logger):
+        if not isLinkAlreadyTweeted(cur, article.link):
             notAlreadyTweetedArticlesList.append(article)
 
     return notAlreadyTweetedArticlesList
 
 
-def isLinkAlreadyTweeted(twitterApi, link, upperTimeBound, logger):
-    tweetList = twitterApi.user_timeline(id="luhze_leipzig", count=5, tweet_mode='extended')
+def isLinkAlreadyTweeted(cur, link):
+    # get tweets from db
+    rows = cur.execute('SELECT * FROM tweets where url = ?', (link,)).fetchall()
 
-    for tweet in tweetList:
-        if not (upperTimeBound - tweet.created_at).seconds <= int(os.environ['INTERVAL_SECONDS']):
-            logger.info('tweet ' + tweet.id_str + ' older than ' + os.environ['INTERVAL_SECONDS'] + ' seconds')
-            continue
-
-        if not (upperTimeBound - tweet.created_at).days <= 0:
-            logger.info('tweet ' + tweet.id_str + ' older than 0 days')
-            continue
-
-        if tweet.in_reply_to_status_id is not None:
-            logger.info('tweet ' + tweet.id_str + ' is a reply')
-            continue
-
-        if tweet.entities['urls'][0]['expanded_url'].strip() != link:
-            logger.info('no link to a recent luhze article in tweet ' + tweet.id_str)
-            continue
-
-        logger.info('tweet ' + tweet.id_str + ' blocks publishing')
+    if len(rows) > 0:
         return True
 
     return False
@@ -261,10 +151,10 @@ def craftTweetObjectList(feedList, logger):
     return tweetObjectList
 
 
-def publishTweets(twitterApi, tweetObjectList, logger):
+def publishTweets(api, client, tweetObjectList, logger):
 
     for tweet in tweetObjectList:
-        media = twitterApi.media_upload(tweet.pathToImage)
+        media = api.media_upload(tweet.pathToImage)
 
         if tweet.imageCredit is None:
             tweet = tweet.teaser + "\n\n" + u"\u27A1" + " " + tweet.link
@@ -272,18 +162,20 @@ def publishTweets(twitterApi, tweetObjectList, logger):
             tweet = tweet.teaser + "\n\n" + u"\u27A1" + " " + tweet.link + "\n\n" + u"\U0001F4F8" + " " + tweet.imageCredit
 
         logger.info('tweet ' + tweet.replace('\n', ''))
-        response = twitterApi.update_status(status=tweet, media_ids=[media.media_id])
-        logger.info(response.entities['urls'][0]['expanded_url'])
+        response = client.create_tweet(text=tweet, media_ids=[media.media_id])
+        logger.info(f"published tweet id: {response.data['id']}")
 
 
-def initTelegramBot():
-    return telegram.Bot(token=os.environ['TELEGRAM_TOKEN'])
 
-
-def getTwitterApi():
-    auth = tweepy.OAuthHandler(os.environ['TWITTER_API_KEY'], os.environ['TWITTER_API_SECRET_KEY'])
-    auth.set_access_token(os.environ['TWITTER_ACCESS_TOKEN'], os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
-    return tweepy.API(auth)
+def getTwitterAccess():
+    auth = tweepy.OAuth1UserHandler(os.environ['TWITTER_API_KEY'], os.environ['TWITTER_API_SECRET_KEY'], os.environ['TWITTER_ACCESS_TOKEN'], os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
+    api = tweepy.API(auth)
+    client = tweepy.Client(
+        consumer_key=os.environ['TWITTER_API_KEY'],
+        consumer_secret=os.environ['TWITTER_API_SECRET_KEY'],
+        access_token=os.environ['TWITTER_ACCESS_TOKEN'],
+        access_token_secret=os.environ['TWITTER_ACCESS_TOKEN_SECRET'])
+    return api, client
 
 
 def main():
@@ -302,22 +194,28 @@ def main():
             logger.info('no new articles uploaded in the last ' + os.environ['INTERVAL_SECONDS'] + ' seconds')
             return
 
-        logger.info('init telegram bot')
-        telegramBot = initTelegramBot()
+        conn = sqlite3.connect('tweets.db')
+        cur = conn.cursor()
 
-        notStoppedArticles = filterStoppedArticles(telegramBot, onlyNewArticlesFeedList, startingTime, logger)
-
-        logger.info('init twitter bot')
-        twitterApi = getTwitterApi()
-
-        notTweetedArticles = filterAlreadyTweetedArticles(twitterApi, notStoppedArticles, startingTime, logger)
+        notTweetedArticles = filterAlreadyTweetedArticles(cur, onlyNewArticlesFeedList)
 
         tweetObjectList = craftTweetObjectList(notTweetedArticles, logger)
 
-        publishTweets(twitterApi, tweetObjectList, logger)
+        logger.info('init twitter bot')
+        api, client = getTwitterAccess()
+
+        publishTweets(api, client, tweetObjectList, logger)
+
+        # write published tweets to db
+        for article in notTweetedArticles:
+            cur.execute('INSERT INTO tweets VALUES (?, ?)', (article.link, datetime.utcnow()))
+        conn.commit()
 
         logger.info('delete images')
         deleteAllImages()
+
+        cur.close()
+        conn.close()
 
     except Exception as e:
         logger.critical(f"something went wrong: {e}")
