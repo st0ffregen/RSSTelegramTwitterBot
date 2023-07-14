@@ -208,7 +208,7 @@ def main():
 
         # write published tweets to db
         for article in notTweetedArticles:
-            cur.execute('INSERT INTO tweets VALUES (?, ?)', (article.link, datetime.utcnow()))
+            cur.execute('INSERT INTO tweets VALUES (?, ?, ?)', (None, article.link, datetime.utcnow()))
         conn.commit()
 
         logger.info('delete images')
